@@ -1,16 +1,17 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import { TaskWithChildren } from "@/lib/types"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ChevronRight, ChevronDown, Plus, Trash2, Calendar } from "lucide-react"
+import { ChevronRight, ChevronDown, Plus, Trash2, Clock } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
-import { updateTaskStatus, deleteTask, createTask } from "@/app/actions/task"
-import { useQueryClient } from "@tanstack/react-query"
+import { updateTaskStatus, deleteTask, createTask, updateTaskDetails } from "@/app/actions/task"
+import { useQueryClient, useMutation } from "@tanstack/react-query"
+import { formatDistanceToNow } from "date-fns"
 
 interface TaskItemProps {
   task: TaskWithChildren
@@ -21,17 +22,86 @@ export function TaskItem({ task, level = 0 }: TaskItemProps) {
   const [isOpen, setIsOpen] = useState(true)
   const [isAddingSubtask, setIsAddingSubtask] = useState(false)
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("")
+  const [isEditing, setIsEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState(task.title)
   const queryClient = useQueryClient()
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  const handleToggle = async (checked: boolean) => {
-    await updateTaskStatus(task.id, checked)
-    queryClient.invalidateQueries({ queryKey: ["tasks"] })
-  }
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [isEditing])
 
-  const handleDelete = async () => {
-    await deleteTask(task.id)
-    queryClient.invalidateQueries({ queryKey: ["tasks"] })
-  }
+  // Optimistic Toggle
+  const { mutate: toggleTask } = useMutation({
+    mutationFn: async (checked: boolean) => {
+      await updateTaskStatus(task.id, checked)
+    },
+    onMutate: async (checked) => {
+      await queryClient.cancelQueries({ queryKey: ["tasks"] })
+      const previousTasks = queryClient.getQueryData(["tasks"])
+      
+      queryClient.setQueryData(["tasks"], (old: any[]) => {
+        return old.map((t) => t.id === task.id ? { ...t, isCompleted: checked } : t)
+      })
+
+      return { previousTasks }
+    },
+    onError: (err, newTodo, context) => {
+      queryClient.setQueryData(["tasks"], context?.previousTasks)
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] })
+    },
+  })
+
+  // Optimistic Delete
+  const { mutate: removeTask } = useMutation({
+    mutationFn: async () => {
+      await deleteTask(task.id)
+    },
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ["tasks"] })
+      const previousTasks = queryClient.getQueryData(["tasks"])
+      
+      queryClient.setQueryData(["tasks"], (old: any[]) => {
+        return old.filter((t) => t.id !== task.id)
+      })
+
+      return { previousTasks }
+    },
+    onError: (err, newTodo, context) => {
+      queryClient.setQueryData(["tasks"], context?.previousTasks)
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] })
+    },
+  })
+
+  // Optimistic Edit
+  const { mutate: saveEdit } = useMutation({
+    mutationFn: async (newTitle: string) => {
+      if (newTitle === task.title) return
+      await updateTaskDetails(task.id, newTitle, task.priority)
+    },
+    onMutate: async (newTitle) => {
+      await queryClient.cancelQueries({ queryKey: ["tasks"] })
+      const previousTasks = queryClient.getQueryData(["tasks"])
+      
+      queryClient.setQueryData(["tasks"], (old: any[]) => {
+        return old.map((t) => t.id === task.id ? { ...t, title: newTitle } : t)
+      })
+
+      return { previousTasks }
+    },
+    onError: (err, newTodo, context) => {
+      queryClient.setQueryData(["tasks"], context?.previousTasks)
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] })
+    },
+  })
 
   const handleAddSubtask = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -43,14 +113,36 @@ export function TaskItem({ task, level = 0 }: TaskItemProps) {
     queryClient.invalidateQueries({ queryKey: ["tasks"] })
   }
 
+  const handleEditSubmit = () => {
+    if (!editTitle.trim()) {
+      setEditTitle(task.title)
+      setIsEditing(false)
+      return
+    }
+    saveEdit(editTitle)
+    setIsEditing(false)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") handleEditSubmit()
+    if (e.key === "Escape") {
+      setEditTitle(task.title)
+      setIsEditing(false)
+    }
+  }
+
   const getBadgeStyle = (p: string) => {
     switch (p) {
-      case "High": return "bg-red-500 hover:bg-red-600 text-white border-transparent"
-      case "Medium": return "bg-yellow-500 hover:bg-yellow-600 text-white border-transparent"
-      case "Low": return "bg-gray-500 hover:bg-gray-600 text-white border-transparent"
+      case "High": return "bg-red-500/10 text-red-600 hover:bg-red-500/20 border-red-200 dark:border-red-900"
+      case "Medium": return "bg-yellow-500/10 text-yellow-600 hover:bg-yellow-500/20 border-yellow-200 dark:border-yellow-900"
+      case "Low": return "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 border-blue-200 dark:border-blue-900"
       default: return ""
     }
   }
+
+  const completedChildren = task.children.filter(c => c.isCompleted).length
+  const totalChildren = task.children.length
+  const progress = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0
 
   return (
     <div className="w-full">
@@ -60,15 +152,15 @@ export function TaskItem({ task, level = 0 }: TaskItemProps) {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         className={cn(
-          "group flex items-center gap-3 p-3 rounded-lg hover:bg-accent/50 transition-colors border border-transparent hover:border-border",
-          task.isCompleted && "opacity-60"
+          "group flex items-center gap-3 p-3 rounded-lg hover:bg-accent/50 transition-all duration-200 border border-transparent hover:border-border/50",
+          task.isCompleted && "opacity-60 bg-accent/20"
         )}
         style={{ marginLeft: `${level * 1.5}rem` }}
       >
         <Button
           variant="ghost"
           size="icon"
-          className={cn("h-6 w-6 shrink-0", task.children.length === 0 && "invisible")}
+          className={cn("h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground transition-colors", task.children.length === 0 && "invisible")}
           onClick={() => setIsOpen(!isOpen)}
         >
           {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -76,30 +168,61 @@ export function TaskItem({ task, level = 0 }: TaskItemProps) {
 
         <Checkbox
           checked={task.isCompleted}
-          onCheckedChange={handleToggle}
-          className="rounded-full"
+          onCheckedChange={(c) => toggleTask(c as boolean)}
+          className="rounded-full data-[state=checked]:bg-primary data-[state=checked]:border-primary transition-all duration-300"
         />
 
-        <div className="flex-1 flex flex-col">
-          <span className={cn("font-medium transition-all", task.isCompleted && "line-through text-muted-foreground")}>
-            {task.title}
-          </span>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-             <Badge variant="outline" className={cn("font-normal px-1.5 py-0", getBadgeStyle(task.priority))}>
+        <div className="flex-1 flex flex-col min-w-0">
+          {isEditing ? (
+            <Input
+              ref={inputRef}
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onBlur={handleEditSubmit}
+              onKeyDown={handleKeyDown}
+              className="h-6 py-0 px-1 text-base border-none focus-visible:ring-0 bg-transparent -ml-1"
+            />
+          ) : (
+            <span 
+              onDoubleClick={() => setIsEditing(true)}
+              className={cn(
+                "font-medium transition-all duration-300 cursor-text truncate select-none", 
+                task.isCompleted && "line-through text-muted-foreground"
+              )}
+            >
+              {task.title}
+            </span>
+          )}
+          
+          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1.5">
+             <Badge variant="outline" className={cn("font-medium px-2 py-0.5 text-[10px] uppercase tracking-wider border", getBadgeStyle(task.priority))}>
                 {task.priority}
              </Badge>
-             <span className="flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric' }).format(new Date(task.createdAt))}
+             
+             <span className="flex items-center gap-1.5" title={new Date(task.createdAt).toLocaleString()}>
+                <Clock className="h-3 w-3" />
+                {formatDistanceToNow(new Date(task.createdAt), { addSuffix: true })}
              </span>
+
+             {totalChildren > 0 && (
+               <span className="flex items-center gap-1.5 text-xs font-medium">
+                 <div className="h-1.5 w-12 bg-secondary rounded-full overflow-hidden">
+                   <div 
+                     className="h-full bg-primary transition-all duration-500 ease-out" 
+                     style={{ width: `${progress}%` }}
+                   />
+                 </div>
+                 <span className="text-[10px]">{completedChildren}/{totalChildren}</span>
+               </span>
+             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsAddingSubtask(!isAddingSubtask)}>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-background hover:shadow-sm" onClick={() => setIsAddingSubtask(!isAddingSubtask)}>
                 <Plus className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={handleDelete}>
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10" onClick={() => removeTask()}>
                 <Trash2 className="h-4 w-4" />
             </Button>
         </div>
@@ -121,7 +244,7 @@ export function TaskItem({ task, level = 0 }: TaskItemProps) {
                         placeholder="Subtask title..."
                         value={newSubtaskTitle}
                         onChange={(e) => setNewSubtaskTitle(e.target.value)}
-                        className="h-8"
+                        className="h-9 bg-background"
                     />
                     <Button type="submit" size="sm" variant="secondary">Add</Button>
                 </div>

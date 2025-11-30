@@ -23,4 +23,6 @@ model Task {
   parentId    String?
   parent      Task?    @relation("SubTasks", fields: [parentId], references: [id], onDelete: Cascade)
   subTasks    Task[]   @relation("SubTasks")
+
+  @@index([parentId])
 }
