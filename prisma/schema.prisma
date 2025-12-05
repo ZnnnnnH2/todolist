@@ -21,6 +21,10 @@ model Task {
   createdAt   DateTime @default(now())
   isCompleted Boolean  @default(false)
   priority    String   @default("Medium") // Low, Medium, High
+  dueDate           DateTime?
+  isRecurring       Boolean  @default(false)
+  recurringInterval Int?
+  recurringUnit     String?   // "day", "week", "month"
   parentId    String?
   parent      Task?    @relation("SubTasks", fields: [parentId], references: [id], onDelete: Cascade)
   subTasks    Task[]   @relation("SubTasks")

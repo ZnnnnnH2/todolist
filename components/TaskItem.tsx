@@ -6,12 +6,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ChevronRight, ChevronDown, Plus, Trash2, Clock } from "lucide-react"
+import { ChevronRight, ChevronDown, Plus, Trash2, Clock, Repeat, CalendarDays } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { updateTaskStatus, deleteTask, createTask, updateTaskDetails } from "@/app/actions/task"
 import { useQueryClient, useMutation } from "@tanstack/react-query"
-import { formatDistanceToNow } from "date-fns"
+import { formatDistanceToNow, format, isPast, isToday, startOfDay } from "date-fns"
 
 interface TaskItemProps {
   task: TaskWithChildren
@@ -32,6 +32,10 @@ export function TaskItem({ task, level = 0 }: TaskItemProps) {
       inputRef.current.focus()
     }
   }, [isEditing])
+
+  // Check if task is overdue
+  const isOverdue = task.dueDate && !task.isCompleted && isPast(startOfDay(new Date(task.dueDate))) && !isToday(new Date(task.dueDate))
+  const isDueToday = task.dueDate && isToday(new Date(task.dueDate))
 
   // Optimistic Toggle
   const { mutate: toggleTask } = useMutation({
@@ -140,6 +144,15 @@ export function TaskItem({ task, level = 0 }: TaskItemProps) {
     }
   }
 
+  const getRecurringLabel = (unit: string | null) => {
+    switch (unit) {
+      case "day": return "Daily"
+      case "week": return "Weekly"
+      case "month": return "Monthly"
+      default: return ""
+    }
+  }
+
   const completedChildren = task.children.filter(c => c.isCompleted).length
   const totalChildren = task.children.length
   const progress = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0
@@ -194,7 +207,7 @@ export function TaskItem({ task, level = 0 }: TaskItemProps) {
             </span>
           )}
           
-          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1.5">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1.5 flex-wrap">
              <Badge variant="outline" className={cn("font-medium px-2 py-0.5 text-[10px] uppercase tracking-wider border", getBadgeStyle(task.priority))}>
                 {task.priority}
              </Badge>
@@ -203,6 +216,33 @@ export function TaskItem({ task, level = 0 }: TaskItemProps) {
                 <Clock className="h-3 w-3" />
                 {formatDistanceToNow(new Date(task.createdAt), { addSuffix: true })}
              </span>
+
+             {/* Due Date Badge */}
+             {task.dueDate && (
+               <Badge 
+                 variant="outline" 
+                 className={cn(
+                   "font-medium px-2 py-0.5 text-[10px] uppercase tracking-wider border flex items-center gap-1",
+                   isOverdue && "bg-red-500/10 text-red-600 border-red-200 dark:border-red-900",
+                   isDueToday && !isOverdue && "bg-orange-500/10 text-orange-600 border-orange-200 dark:border-orange-900",
+                   !isOverdue && !isDueToday && "bg-purple-500/10 text-purple-600 border-purple-200 dark:border-purple-900"
+                 )}
+               >
+                 <CalendarDays className="h-3 w-3" />
+                 {isOverdue ? "Overdue" : isDueToday ? "Today" : format(new Date(task.dueDate), "MMM d")}
+               </Badge>
+             )}
+
+             {/* Recurring Badge */}
+             {task.isRecurring && task.recurringUnit && (
+               <Badge 
+                 variant="outline" 
+                 className="font-medium px-2 py-0.5 text-[10px] uppercase tracking-wider border bg-cyan-500/10 text-cyan-600 border-cyan-200 dark:border-cyan-900 flex items-center gap-1"
+               >
+                 <Repeat className="h-3 w-3" />
+                 {getRecurringLabel(task.recurringUnit)}
+               </Badge>
+             )}
 
              {totalChildren > 0 && (
                <span className="flex items-center gap-1.5 text-xs font-medium">
