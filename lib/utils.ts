@@ -33,5 +33,20 @@ export function buildTaskTree(tasks: Task[]): TaskWithChildren[] {
     }
   })
 
+  // Sort function to order by sortOrder
+  const sortBySortOrder = (a: TaskWithChildren, b: TaskWithChildren) => 
+    a.sortOrder - b.sortOrder
+
+  // Recursively sort all children
+  const sortChildren = (node: TaskWithChildren) => {
+    node.children.sort(sortBySortOrder)
+    node.children.forEach(sortChildren)
+  }
+
+  // Sort roots and all nested children
+  roots.sort(sortBySortOrder)
+  roots.forEach(sortChildren)
+
   return roots
 }
+

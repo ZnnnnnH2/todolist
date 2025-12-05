@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ChevronRight, ChevronDown, Plus, Trash2, Clock, Repeat, CalendarDays } from "lucide-react"
+import { ChevronRight, ChevronDown, Plus, Trash2, Clock, Repeat, CalendarDays, GripVertical } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { updateTaskStatus, deleteTask, createTask, updateTaskDetails } from "@/app/actions/task"
@@ -16,9 +16,10 @@ import { formatDistanceToNow, format, isPast, isToday, startOfDay } from "date-f
 interface TaskItemProps {
   task: TaskWithChildren
   level?: number
+  dragListeners?: React.HTMLAttributes<HTMLButtonElement>
 }
 
-export function TaskItem({ task, level = 0 }: TaskItemProps) {
+export function TaskItem({ task, level = 0, dragListeners }: TaskItemProps) {
   const [isOpen, setIsOpen] = useState(true)
   const [isAddingSubtask, setIsAddingSubtask] = useState(false)
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("")
@@ -170,6 +171,16 @@ export function TaskItem({ task, level = 0 }: TaskItemProps) {
         )}
         style={{ marginLeft: `${level * 1.5}rem` }}
       >
+        {/* Drag Handle */}
+        {dragListeners && (
+          <button
+            {...dragListeners}
+            className="h-6 w-6 shrink-0 flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none"
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+        )}
+
         <Button
           variant="ghost"
           size="icon"

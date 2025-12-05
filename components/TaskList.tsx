@@ -1,16 +1,35 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
-import { TaskItem } from "./TaskItem"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { SortableTaskItem } from "./SortableTaskItem"
 import { buildTaskTree } from "@/lib/utils"
 import { Task } from "@prisma/client"
 import { Loader2, Filter } from "lucide-react"
 import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { AnimatePresence, motion } from "framer-motion"
+import { AnimatePresence } from "framer-motion"
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { reorderTasks } from "@/app/actions/task"
+import { TaskWithChildren } from "@/lib/types"
 
 export function TaskList() {
   const [hideCompleted, setHideCompleted] = useState(false)
+  const queryClient = useQueryClient()
+  
   const { data: tasks, isLoading, error } = useQuery<Task[]>({
     queryKey: ["tasks"],
     queryFn: async () => {
@@ -20,19 +39,35 @@ export function TaskList() {
     },
   })
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px movement required before drag starts
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  const reorderMutation = useMutation({
+    mutationFn: async ({ orderedIds, parentId }: { orderedIds: string[], parentId: string | null }) => {
+      await reorderTasks(orderedIds, parentId)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tasks"] })
+    },
+  })
+
   const tree = useMemo(() => {
     if (!tasks) return []
-    // Filter first if needed, but for tree structure we usually need all to build hierarchy
-    // However, if we want to hide completed parents, we can filter the roots or recursively filter
-    // For this requirement, let's build the tree first, then filter the display
     return buildTaskTree(tasks)
   }, [tasks])
 
   const filteredTree = useMemo(() => {
     if (!hideCompleted) return tree
     
-    // Recursive filter function
-    const filterNodes = (nodes: any[]): any[] => {
+    const filterNodes = (nodes: TaskWithChildren[]): TaskWithChildren[] => {
       return nodes
         .filter(node => !node.isCompleted)
         .map(node => ({
@@ -43,6 +78,34 @@ export function TaskList() {
     
     return filterNodes(tree)
   }, [tree, hideCompleted])
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (over && active.id !== over.id) {
+      const oldIndex = filteredTree.findIndex(task => task.id === active.id)
+      const newIndex = filteredTree.findIndex(task => task.id === over.id)
+      
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newOrder = arrayMove(filteredTree, oldIndex, newIndex)
+        const orderedIds = newOrder.map(task => task.id)
+        
+        // Optimistic update
+        queryClient.setQueryData(["tasks"], (old: Task[] | undefined) => {
+          if (!old) return old
+          return old.map(task => {
+            const newSortOrder = orderedIds.indexOf(task.id)
+            if (newSortOrder !== -1 && task.parentId === null) {
+              return { ...task, sortOrder: newSortOrder }
+            }
+            return task
+          })
+        })
+        
+        reorderMutation.mutate({ orderedIds, parentId: null })
+      }
+    }
+  }
 
   if (isLoading) {
     return <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
@@ -70,28 +133,30 @@ export function TaskList() {
         </Button>
       </div>
 
-      <div className="space-y-1">
-        <AnimatePresence mode="popLayout">
-          {filteredTree.map((task) => (
-            <motion.div
-              key={task.id}
-              layout
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.2 }}
-            >
-              <TaskItem task={task} />
-            </motion.div>
-          ))}
-        </AnimatePresence>
-        
-        {filteredTree.length === 0 && hideCompleted && (
-          <div className="text-center text-muted-foreground py-8 text-sm">
-            All active tasks completed! 🎉
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={filteredTree.map(task => task.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <div className="space-y-1">
+            <AnimatePresence mode="popLayout">
+              {filteredTree.map((task) => (
+                <SortableTaskItem key={task.id} task={task} />
+              ))}
+            </AnimatePresence>
+            
+            {filteredTree.length === 0 && hideCompleted && (
+              <div className="text-center text-muted-foreground py-8 text-sm">
+                All active tasks completed! 🎉
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </SortableContext>
+      </DndContext>
     </div>
   )
 }

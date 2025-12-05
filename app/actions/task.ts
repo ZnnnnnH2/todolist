@@ -6,7 +6,7 @@ import { addDays, addWeeks, addMonths } from "date-fns"
 
 export async function getTasks() {
   return await prisma.task.findMany({
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
   })
 }
 
@@ -21,6 +21,13 @@ export async function createTask(
 ) {
   if (!title) return
 
+  // Get the max sortOrder for tasks with the same parent
+  const maxSortOrder = await prisma.task.aggregate({
+    where: { parentId: parentId || null },
+    _max: { sortOrder: true },
+  })
+  const newSortOrder = (maxSortOrder._max.sortOrder ?? -1) + 1
+
   await prisma.task.create({
     data: {
       title,
@@ -30,6 +37,7 @@ export async function createTask(
       isRecurring,
       recurringInterval: recurringInterval || null,
       recurringUnit: recurringUnit || null,
+      sortOrder: newSortOrder,
     },
   })
 
@@ -113,5 +121,21 @@ export async function deleteTask(id: string) {
   await prisma.task.delete({
     where: { id },
   })
+  revalidatePath("/")
+}
+
+export async function reorderTasks(
+  orderedIds: string[],
+  parentId: string | null = null
+) {
+  // Batch update all tasks with new sortOrder values
+  await Promise.all(
+    orderedIds.map((id, index) =>
+      prisma.task.update({
+        where: { id },
+        data: { sortOrder: index },
+      })
+    )
+  )
   revalidatePath("/")
 }

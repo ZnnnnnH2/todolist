@@ -1,4 +1,4 @@
-import { getTasks, createTask, updateTaskStatus } from "@/app/actions/task"
+import { getTasks, createTask, updateTaskStatus, reorderTasks } from "@/app/actions/task"
 import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
@@ -66,8 +66,24 @@ export async function POST(request: Request) {
       )
     }
 
+    if (action === 'reorder') {
+      const { orderedIds, parentId } = body
+
+      if (!orderedIds || !Array.isArray(orderedIds)) {
+        return setCorsHeaders(
+          NextResponse.json({ error: 'orderedIds array is required' }, { status: 400 })
+        )
+      }
+
+      await reorderTasks(orderedIds, parentId || null)
+
+      return setCorsHeaders(
+        NextResponse.json({ success: true, message: 'Tasks reordered successfully' })
+      )
+    }
+
     return setCorsHeaders(
-      NextResponse.json({ error: 'Invalid action. Use "create" or "updateStatus"' }, { status: 400 })
+      NextResponse.json({ error: 'Invalid action. Use "create", "updateStatus", or "reorder"' }, { status: 400 })
     )
 
   } catch (error) {
