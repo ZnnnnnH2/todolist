@@ -11,7 +11,7 @@ docker tag todolist:latest znnnnh2/todolist:latest
 # 4. 推送镜像到 Registry
 docker push znnnnh2/todolist:latest
 
-ssh azureuser@20.193.248.140
+ssh -i "c:\Users\ZnH2\.ssh\apps_key.pem" azureuser@20.193.248.140
 # 6. 拉取最新镜像
 docker pull znnnnh2/todolist:latest
 # 7. 停止并删除旧容器
